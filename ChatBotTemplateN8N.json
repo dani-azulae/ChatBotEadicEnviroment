@@ -1,0 +1,339 @@
+{
+  "name": "test1",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "getMessage",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -620,
+        -340
+      ],
+      "id": "5857a8f5-c642-47c7-9929-55cb470da7c9",
+      "name": "Webhook",
+      "webhookId": "dc595994-feb7-4016-a7cb-de287602a1bd"
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemPromptTemplate": "Use the following pieces of context to answer the users question.\nIf you don't know the answer, just say that you don't know, don't try to make up an answer.\n\nRespond in spanish and politely.\n----------------\n{context}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainRetrievalQa",
+      "typeVersion": 1.4,
+      "position": [
+        -120,
+        -220
+      ],
+      "id": "b9f0e120-3a30-40c4-a1f7-6e05c9d55a09",
+      "name": "Question and Answer Chain"
+    },
+    {
+      "parameters": {
+        "model": "qwen:4b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        -180,
+        0
+      ],
+      "id": "c2ae0f8a-5ca5-4162-9224-05dd1ea90eee",
+      "name": "Ollama Chat Model",
+      "credentials": {
+        "ollamaApi": {
+          "id": "F65rK6a3TTs65VS2",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.retrieverVectorStore",
+      "typeVersion": 1,
+      "position": [
+        20,
+        0
+      ],
+      "id": "04b65af3-1a44-41c8-8560-0949f33c5348",
+      "name": "Vector Store Retriever"
+    },
+    {
+      "parameters": {
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "chat_test",
+          "mode": "list",
+          "cachedResultName": "chat_test"
+        },
+        "options": {
+          "searchFilterJson": "{\n  \"should\": [\n    {\n      \"key\": \"metadata.batch\",\n      \"match\": {\n        \"value\": 12345\n      }\n    }\n  ]\n}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1,
+      "position": [
+        140,
+        220
+      ],
+      "id": "63b99d99-fd19-48c3-9f43-4b8687ee3901",
+      "name": "Qdrant Vector Store",
+      "credentials": {
+        "qdrantApi": {
+          "id": "3F35ZKro2oX5CbGI",
+          "name": "QdrantApi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "nomic-embed-text:latest"
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOllama",
+      "typeVersion": 1,
+      "position": [
+        240,
+        440
+      ],
+      "id": "3859b01b-a93d-4382-9a3d-e500a7b841a5",
+      "name": "Embeddings Ollama",
+      "credentials": {
+        "ollamaApi": {
+          "id": "F65rK6a3TTs65VS2",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a4ea019f-9e1f-464c-b6df-4ba778db65bf",
+              "name": "chatInput",
+              "value": "={{ $json.webhookUrl }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -320,
+        -180
+      ],
+      "id": "b22b90dd-8e54-40e1-bc56-bd1049727506",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  {\n    json: {\n      chatInput: $json.body?.message ?? \"Hola! ¿Cómo te encuentras?\",\n      userId: 123,\n      session: 123\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -300,
+        -360
+      ],
+      "id": "a6f23f91-d90d-4c53-9f34-c7dbad3339d8",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseCode": "={{ 200 }}"
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        500,
+        -260
+      ],
+      "id": "2db5a458-bb2b-4943-af0b-6e0b2414ef6b",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"message\": \"{{ $json.response.text }}\",\n  \"user_id\": \"{{ $('Code').item.json.userId }}\",\n  \"sesion_id\" : \"{{ $('Code').item.json.session }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        260,
+        -240
+      ],
+      "id": "ce48904f-7b22-4a15-a9de-a59409877fa1",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "content": "Podemos usar WebHook Prueba, su queremos ver que devuelve sólo un nodo webhook, o podemos ejecutar los nodos anteriores desde nodo Respond to Webhook. \n\n### Code, se encargará de aplicar valores por defecto para que no falle",
+        "height": 200,
+        "width": 280
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        180
+      ],
+      "id": "8305fc84-f216-4299-be3d-a729937d280e",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "path": "getMessage",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -560,
+        -80
+      ],
+      "id": "7b4b554c-7727-4a92-a832-5d4ac30d6430",
+      "name": "WebHook Prueba",
+      "webhookId": "dc595994-feb7-4016-a7cb-de287602a1bd"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Question and Answer Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vector Store Retriever": {
+      "ai_retriever": [
+        [
+          {
+            "node": "Question and Answer Chain",
+            "type": "ai_retriever",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant Vector Store": {
+      "ai_vectorStore": [
+        [
+          {
+            "node": "Vector Store Retriever",
+            "type": "ai_vectorStore",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Question and Answer Chain": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Ollama": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Qdrant Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        []
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Question and Answer Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        []
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WebHook Prueba": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "c98345a9-517a-4255-a07e-ab76ca85b52b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  },
+  "id": "92KunNwGlm4ZkXSy",
+  "tags": []
+}
