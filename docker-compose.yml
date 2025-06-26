@@ -1,0 +1,257 @@
+
+#En caso de no querer usar todas las tajetas gráficas:
+
+#Si la tarjeta es NVIDIA "docker compose --profile gpu-nvidia up"
+#Si tenemos una ADM ejecutar "docker compose --profile gpu-amd up"
+#Para los demás casos "docker compose --profile cpu up"
+#El comando para MAC seria distinto
+
+#Es necesario tener un .env con las variables POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, y GRAFANA_PASSWORD
+
+#IMPORTANTÍSIMO. Sin esto no funciona N8N
+version: '3.8'
+
+x-n8n: &service-n8n
+    image: n8nio/n8n:latest
+    networks: ['ollama_network']
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_PERSONALIZATION_ENABLED=false
+      - N8N_ENCRYPTION_KEY
+      - N8N_USER_MANAGEMENT_JWT_SECRET
+      - N8N_USER_MANAGEMENT_DISABLED=false # Deshabilita la gestión de usuarios, permitiendo el acceso sin autenticación. Para múltiples usuarios
+      - OLLAMA_HOST=ollama:11434
+
+
+x-ollama: &service-ollama
+  image: ollama/ollama:latest
+  container_name: ollama
+  networks: ['ollama_network']
+  restart: unless-stopped
+  ports:
+    - 11434:11434
+  volumes:
+    - ollama-local:/root/.ollama
+
+x-init-ollama: &init-ollama
+  image: ollama/ollama:latest
+  networks: ['ollama_network']
+  container_name: ollama-pull-llama
+  volumes:
+    - ollama-local:/root/.ollama
+  entrypoint: /bin/sh
+  environment:
+    - OLLAMA_HOST=ollama:11434
+  command:
+    - "-c"
+    - "sleep 3; ollama pull llama3.2"
+
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    networks:
+      - ollama_network
+    volumes:
+      - ollama-local:/root/.ollama
+    ports:
+      - "11434:11434"            # Puerto por defecto de OLlama
+    restart: always
+    deploy:
+      resources:
+        reservations: #Indicamos al contenedor que necesitaremos acceso a la GPU...
+          devices:
+            - driver: nvidia
+              count: all  # Usa todas las GPUs disponibles
+              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all  #Exponemos todas las GPUs disponibles
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility  #Habilitamos las capacidades necesarias para que el contenedor aproveche la GPU...
+
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main  # Imagen de Open-WebUI
+    container_name: open-webui
+    networks:
+      - ollama_network
+    volumes:
+      - open-webui-local:/app/backend/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # environment:
+    #   - OLLAMA_API_URL=http://ollama:11434    # Conexión directa al contenedor OLlama
+    ports:
+      - "3000:8080"       # Hacemos una redirección del puerto 8080 del contenedor al 3000 del host.
+    restart: always
+
+  postgres:
+    image: postgres:16-alpine
+    hostname: postgres
+    container_name: postgres
+    networks: 
+      - ollama_network
+    restart: always
+    environment:
+      # - POSTGRES_USER=${POSTGRES_USER}
+      # - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_USER
+      - POSTGRES_PASSWORD
+      - POSTGRES_DB
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_storage:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h localhost -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin
+    networks: 
+      - ollama_network
+    restart: always
+    environment:
+      # PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      # PGADMIN_DEFAULT_PASSWORD: ${POSTGRES_PASSWORD}
+      - PGADMIN_DEFAULT_EMAIL
+      - PGADMIN_DEFAULT_PASSWORD
+    ports:
+      - "8081:80"
+    depends_on: 
+      - postgres
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+  n8n-import:
+    <<: *service-n8n
+    hostname: n8n-import
+    container_name: n8n-import
+    entrypoint: /bin/sh
+    command:
+      - "-c"
+      - "n8n import:credentials --separate --input=/backup/credentials && n8n import:workflow --separate --input=/backup/workflows"
+    volumes:
+      - ./n8n/backup:/backup
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  n8n:
+    <<: *service-n8n
+    hostname: n8n
+    container_name: n8n
+    restart: always
+    ports:
+      - 5678:5678
+    volumes:
+      - n8n_storage:/home/node/.n8n
+      - ./n8n/backup:/backup
+      - ./shared:/data/shared
+    depends_on:
+      postgres:
+        condition: service_healthy
+      n8n-import:
+        condition: service_completed_successfully
+
+  qdrant:
+    image: qdrant/qdrant
+    hostname: qdrant
+    container_name: qdrant
+    networks: ['ollama_network']
+    restart: always
+    ports:
+      - 6333:6333
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+
+  # db: 
+  #   image: mysql:8.0.32
+  #   container_name: 
+  #   restart: unless-stopped
+  #   environment: 
+  #     MYSQL_DATABASE: root_db
+  #     MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+  #     MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+  #     MYSQL_USER: ${MYSQL_USER}
+  #   volumes: 
+  #     - ./db_data:/var/lib/mysql
+
+
+      
+  #PERFILES  
+  ollama-cpu:
+    profiles: ["cpu"]
+    <<: *service-ollama
+
+  ollama-gpu:
+    profiles: ["gpu-nvidia"]
+    <<: *service-ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  ollama-gpu-amd:
+    profiles: ["gpu-amd"]
+    <<: *service-ollama
+    image: ollama/ollama:rocm
+    devices:
+      - "/dev/kfd"
+      - "/dev/dri"
+
+  ollama-pull-llama-cpu:
+    profiles: ["cpu"]
+    <<: *init-ollama
+    depends_on:
+      - ollama-cpu
+
+  ollama-pull-llama-gpu:
+    profiles: ["gpu-nvidia"]
+    <<: *init-ollama
+    depends_on:
+      - ollama-gpu
+
+  ollama-pull-llama-gpu-amd:
+    profiles: [gpu-amd]
+    <<: *init-ollama
+    image: ollama/ollama:rocm
+    depends_on:
+     - ollama-gpu-amd
+
+networks:
+  ollama_network:
+    driver: bridge
+
+volumes:
+  ollama-local:
+    name: ollama-local
+    #external: true #Indica que el volumen ya existe fuera de la configuración de compose.
+  open-webui-local:
+    name: open-webui-local
+    #external: true
+  postgres_storage:
+    name: postgres_storage
+  pgadmin_data:
+    name: pgadmin_data
+  qdrant_storage:
+    name: qdrant_storage
+  n8n_storage:
+    name: n8n_storage
+  prometheus-data:
+    name: prometheus-data
+  grafana-data:
+    name: grafana-data
+
+
